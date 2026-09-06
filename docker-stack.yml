@@ -1,53 +1,75 @@
-# this file is meant for Docker Swarm stacks only
-# trying it in compose will fail because of multiple replicas trying to bind to the same port
-# Swarm currently does not support Compose Spec, so we'll pin to the older version 3.9
-
-version: "3.9"
+version: "3.8"
 
 services:
+  vote:
+    image: docker-vote:latest
+    ports:
+      - "5000:80"
+    networks:
+      - voting-overlay
+    deploy:
+      replicas: 3
+      restart_policy:
+        condition: on-failure
+      resources:
+        limits:
+          cpus: '0.50'
+          memory: 256M
+
+  result:
+    image: docker-result:latest
+    ports:
+      - "5001:4000"
+    networks:
+      - voting-overlay
+    environment:
+      DATABASE_URL: "postgres://postgres:super_secret_swarm_password_2026@db/postgres"
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+
+  worker:
+    image: docker-worker:latest
+    networks:
+      - voting-overlay
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: on-failure
 
   redis:
     image: redis:alpine
     networks:
-      - frontend
+      - voting-overlay
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: on-failure
 
   db:
     image: postgres:15-alpine
     environment:
-      POSTGRES_USER: "postgres"
-      POSTGRES_PASSWORD: "postgres"
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD_FILE: /run/secrets/db_password
+    secrets:
+      - db_password
     volumes:
       - db-data:/var/lib/postgresql/data
     networks:
-      - backend
-
-  vote:
-    image: dockersamples/examplevotingapp_vote
-    ports:
-      - 8080:80
-    networks:
-      - frontend
+      - voting-overlay
     deploy:
-      replicas: 2
-
-  result:
-    image: dockersamples/examplevotingapp_result
-    ports:
-      - 8081:80
-    networks:
-      - backend
-
-  worker:
-    image: dockersamples/examplevotingapp_worker
-    networks:
-      - frontend
-      - backend
-    deploy:
-      replicas: 2
+      replicas: 1
+      restart_policy:
+        condition: on-failure
 
 networks:
-  frontend:
-  backend:
+  voting-overlay:
+    driver: overlay
 
 volumes:
   db-data:
+
+secrets:
+  db_password:
+    external: true
